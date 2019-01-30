@@ -1,14 +1,14 @@
-# blpapiwrapper
+# cljblpapiwrapper
 
-A Clojure library designed to ... well, that part is up to you.
+Simple Clojure wrapper around the Bloomberg Java API
 
 ## Usage
 
-FIXME
+This will only work if you're connected to Bloomberg, typically on a machine where the Bloomberg terminal application is running. The request/response paradigm is currently implemented. Please check the examples.
 
 ## License
 
-Copyright © 2019 FIXME
+Copyright © 2019 Alexandre Almosni
 
 This program and the accompanying materials are made available under the
 terms of the Eclipse Public License 2.0 which is available at
