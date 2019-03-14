@@ -1,7 +1,6 @@
 (ns cljblpapiwrapper.core
   (:gen-class)
-  (:import (com.bloomberglp.blpapi CorrelationID Session SessionOptions)) ;Event Message MessageIterator Request Service
-  )
+  (:import (com.bloomberglp.blpapi CorrelationID Session SessionOptions Subscription SubscriptionList)))
 
 
 
@@ -25,6 +24,7 @@
     session))
 
 (defn- handle-response-event [event]
+  ;(println ( event) )
   (loop [iter (.messageIterator event)]
     (let [res (.next iter)]
       (if (.hasNext iter) (recur iter) res))))
@@ -141,3 +141,37 @@
 ;
 
 
+;;;;;;;;
+;Subscription
+
+(defn clj-bdp-subscribe [securities fields atom-map]
+  (let [session-options (doto (SessionOptions.) (.setServerHost "localhost") (.setServerPort 8194))
+        session (doto (Session. session-options) (.start) (.openService "//blp/mktdata"))
+        subscriptions (SubscriptionList.)
+        securitiescoll (if (coll? securities) securities [securities])
+        fieldscoll (if (coll? fields) fields [fields])
+        fieldstring (clojure.string/join "," fieldscoll)
+        corrmap (into {} (map-indexed vector securitiescoll))]
+    (doseq  [[c s] corrmap]
+      (.add subscriptions (Subscription. s fieldstring (CorrelationID. c))))
+  (Thread.
+    (fn []
+      (try
+        (.subscribe session subscriptions)
+        (while true
+          (let [event (.nextEvent session)]
+            (if (= (.intValue (.eventType event)) com.bloomberglp.blpapi.Event$EventType$Constants/SUBSCRIPTION_DATA)
+              (let [iter (.messageIterator event) msg (.next iter) s (corrmap (.object (.correlationID msg)))]
+                (doseq [f fieldscoll]
+                  (when (.hasElement msg f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg f)))))))))
+               (catch InterruptedException e
+                 (.stop session)
+                 (println (.getMessage e))))))))
+
+
+;Examples
+;(def m (atom nil))
+;(def t (clj-bdp-subscribe ["AAPL US Equity" "GOOG US Equity"] ["LAST_PRICE"] m))
+;(.start t)
+;(println @m)
+;(.stop t)
