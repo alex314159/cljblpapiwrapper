@@ -4,7 +4,7 @@ Simple Clojure wrapper around the Bloomberg Java API
 
 ## Usage
 
-This will only work if you're connected to Bloomberg, typically on a machine where the Bloomberg terminal application is running. The request/response paradigm is currently implemented. Please check the examples.
+This will only work if you're connected to Bloomberg, typically on a machine where the Bloomberg terminal application is running. The request/response paradigm and the subscription paradigm are currently implemented. Please check the examples.
 
 ## License
 
