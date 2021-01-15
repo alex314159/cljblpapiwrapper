@@ -3,8 +3,7 @@
   (:import
     (java.time LocalDate ZonedDateTime)
     (java.time.format DateTimeFormatter)
-    (com.bloomberglp.blpapi CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request)
-    ))
+    (com.bloomberglp.blpapi CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request)))
 
 
 ;; Useful functions, not Bloomberg add-in dependent ;;
@@ -119,7 +118,7 @@
   "We either take the session as an input (SAPI) or create a
   local session, which will only work locally on a computer that is connected to Bloomberg"
   ([securitiescoll fieldscoll override-field override-value session-input]
-   (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost "localhost") (.setServerPort 8194))) (.start)))]
+   (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
      (.openService session "//blp/refdata")
      (let [request-id (CorrelationID. 1)
            ref-data-service (.getService session "//blp/refdata")
@@ -146,28 +145,26 @@
 
 ;; BDH definition ;;
 
-(defn- clj-bdh-session [securitiescoll fieldscoll start-date end-date adjustment-split periodicity]
-  (let [session-options (doto (SessionOptions.) (.setServerHost "localhost") (.setServerPort 8194))
-        session (doto (Session. session-options) (.start) (.openService "//blp/refdata"))
-        request-id (CorrelationID. 1)
-        ref-data-service (.getService session "//blp/refdata")
-        ;securitiescoll (if (coll? securities) securities [securities])
-        ;fieldscoll (if (coll? fields) fields [fields])
-        request (doto
-                  (.createRequest ref-data-service "HistoricalDataRequest")
-                  (.set "startDate" start-date)
-                  (.set "endDate" end-date)
-                  (.set "adjustmentSplit" (if adjustment-split "TRUE" "FALSE"))
-                  (.set "periodicitySelection" periodicity))]
-    (doseq [s securitiescoll] (.append request "securities" s))
-    (doseq [f fieldscoll] (.append request "fields" f))
-    (.sendRequest session request request-id)
-    session))
+(defn- clj-bdh-session [securitiescoll fieldscoll start-date end-date adjustment-split periodicity session-input]
+  (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+    (.openService session "//blp/refdata")
+    (let [request-id (CorrelationID. 1)
+          ref-data-service (.getService session "//blp/refdata")
+          request (doto
+                    (.createRequest ref-data-service "HistoricalDataRequest")
+                    (.set "startDate" start-date)
+                    (.set "endDate" end-date)
+                    (.set "adjustmentSplit" (if adjustment-split "TRUE" "FALSE"))
+                    (.set "periodicitySelection" periodicity))]
+      (doseq [s securitiescoll] (.append request "securities" s))
+      (doseq [f fieldscoll] (.append request "fields" f))
+      (.sendRequest session request request-id)
+      session)))
 
-(defn bdh [securities fields start-date end-date & {:keys [adjustment-split periodicity] :or {adjustment-split false periodicity "DAILY"}}]
+(defn bdh [securities fields start-date end-date & {:keys [adjustment-split periodicity session] :or {adjustment-split false periodicity "DAILY" session nil}}]
   (let [securitiescoll (if (coll? securities) securities [securities])
         fieldscoll (map name (if (coll? fields) fields [fields]))]
-    (wait-for-response (clj-bdh-session securitiescoll fieldscoll (date->yyyyMMdd start-date) (date->yyyyMMdd end-date) adjustment-split periodicity) :history fieldscoll)))
+    (wait-for-response (clj-bdh-session securitiescoll fieldscoll (date->yyyyMMdd start-date) (date->yyyyMMdd end-date) adjustment-split periodicity session) :history fieldscoll)))
 
 
 ;Examples
@@ -185,35 +182,35 @@
 
 ;; Subscription ;;
 
-(defn clj-bdp-subscribe [securities fields atom-map]
-  (let [session-options (doto (SessionOptions.) (.setServerHost "localhost") (.setServerPort 8194))
-        session (doto (Session. session-options) (.start) (.openService "//blp/mktdata"))
-        subscriptions (SubscriptionList.)
-        securitiescoll (if (coll? securities) securities [securities])
-        fieldscoll (if (coll? fields) fields [fields])
-        fieldstring (clojure.string/join "," fieldscoll)
-        corrmap (into {} (map-indexed vector securitiescoll))]
-    (doseq  [[c s] corrmap]
-      (.add subscriptions (Subscription. s fieldstring (CorrelationID. c))))
-    (Thread.
-      (fn []
-        (try
-          (.subscribe session subscriptions)
-          (while true
-            (let [event (.nextEvent session)]
-              (if (= (.intValue (.eventType event)) Event$EventType$Constants/SUBSCRIPTION_DATA)
-                (let [iter (.messageIterator event) msg (.next iter) s (corrmap (.object (.correlationID msg)))]
-                  (doseq [f fieldscoll]
-                    (when (.hasElement msg f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg f)))))))))
+(defn clj-bdp-subscribe [securities fields session-input atom-map]
+  (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+    (.openService session "//blp/mktdata")
+    (let [subscriptions (SubscriptionList.)
+          securitiescoll (if (coll? securities) securities [securities])
+          fieldscoll (if (coll? fields) fields [fields])
+          fieldstring (clojure.string/join "," fieldscoll)
+          corrmap (into {} (map-indexed vector securitiescoll))]
+      (doseq  [[c s] corrmap]
+        (.add subscriptions (Subscription. s fieldstring (CorrelationID. c))))
+      (Thread.
+        (fn []
+          (try
+            (.subscribe session subscriptions)
+            (while true
+              (let [event (.nextEvent session)]
+                (if (= (.intValue (.eventType event)) Event$EventType$Constants/SUBSCRIPTION_DATA)
+                  (let [iter (.messageIterator event) msg (.next iter) s (corrmap (.object (.correlationID msg)))]
+                    (doseq [f fieldscoll]
+                      (when (.hasElement msg f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg f)))))))))
           (catch InterruptedException e
             (.stop session)
-            (println (.getMessage e))))))))
+            (println (.getMessage e)))))))))
 
 
 
 ;Examples
 ;(def m (atom nil))
-;(def t (clj-bdp-subscribe ["AAPL US Equity" "GOOG US Equity"] ["LAST_PRICE"] m))
+;(def t (clj-bdp-subscribe ["AAPL US Equity" "GOOG US Equity"] ["LAST_PRICE"] nil m))
 ;(.start t)
 ;(log/info @m)
 ;(.stop t)
