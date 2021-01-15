@@ -1,74 +1,158 @@
 (ns cljblpapiwrapper.core
   (:gen-class)
-  (:import (com.bloomberglp.blpapi CorrelationID Session SessionOptions Subscription SubscriptionList)))
+  (:import
+    (java.time LocalDate ZonedDateTime)
+    (java.time.format DateTimeFormatter)
+    (com.bloomberglp.blpapi CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request)
+    ))
 
 
+;; Useful functions, not Bloomberg add-in dependent ;;
+
+(defn- date->yyyyMMdd
+  "This will convert all of LocalDate, ZonedDateTime and yyyy-MM-dd into yyyyMMdd"
+  [date]
+  (condp = (type date)
+    LocalDate (.format date (DateTimeFormatter/ofPattern "yyyyMMdd"))
+    ZonedDateTime (.format date (DateTimeFormatter/ofPattern "yyyyMMdd"))
+    String (clojure.string/replace date #"-" "")))
+
+(defn bdh-result->records
+  "This is useful for e.g. vega-lite display"
+  [res]
+  (apply concat (for [[k v] res] (mapv #(assoc % :security k) v))))
+
+(defn bdh-result->field
+  [res field]
+  (assert (apply = (map count (vals res))) "Error, series misaligned!")
+  (sort-by :date
+           (into [] (for [[d v] (group-by :date (bdh-result->records res))]
+                      (into {:date d} (for [r v] [(r :security) (r field)]))))))
+
+(defn bdh-result->date
+  [res date]
+  (filter #(= (:date %) date) (bdh-result->records res)))
+
+(defn bdh-result->date-field
+  [res date field]
+  (into {} (for [r (bdh-result->date res date)] [(r :security) (r field)])))
 
 
-;BDP implementation
-(defn- clj-bdp-session [securities fields override-field override-value]
-  (let [session-options (doto (SessionOptions.) (.setServerHost "localhost") (.setServerPort 8194))
-        session (doto (Session. session-options) (.start) (.openService "//blp/refdata"))
-        request-id (CorrelationID. 1)
-        securitiescoll (if (coll? securities) securities [securities])
-        fieldscoll (if (coll? fields) fields [fields])
-        ref-data-service (.getService session "//blp/refdata")
-        request (.createRequest ref-data-service "ReferenceDataRequest")]
-    (doseq [s securitiescoll] (.append request "securities" s))
-    (doseq [f fieldscoll] (.append request "fields" f))
-    (when override-field
-      (doto (.appendElement (.getElement request "overrides"))
-        (.setElement "fieldId" override-field)
-        (.setElement "value" override-value)))
-    (.sendRequest session request request-id)
-    session))
+;; Session functions
+
+(def default-local-host "localhost")
+(def default-local-port 8194)
+
+(defn sapi-session
+  "SAPI authentication
+  - host-ip and host-port are for the server
+  - uuid is the UUID of a user who's creating the request and is logged into Bloomberg desktop
+  - local-ip is the ip of the user"
+  [^String host-ip ^Long host-port ^Long uuid ^String local-ip]
+  (let [session-options (doto
+                          (SessionOptions.)
+                          (.setClientMode SessionOptions$ClientMode/SAPI)
+                          (.setServerHost host-ip)
+                          (.setServerPort host-port))
+        session (doto (Session. session-options) (.start) (.openService "//blp/apiauth"))
+        bbgidentity (.createIdentity session)
+        api-auth-svc (.getService session "//blp/apiauth")
+        auth-req (doto (.createAuthorizationRequest api-auth-svc) (.set "uuid" (str uuid)) (.set "ipAddress" local-ip))
+        corr (CorrelationID. uuid)]
+    (.sendAuthorizationRequest session auth-req bbgidentity corr)
+    (loop [s session]
+      (let [event (.nextEvent s)]
+        (if (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
+          [session (= (subs (.toString (.next (.messageIterator event))) 0 20) "AuthorizationSuccess")]
+          (recur s))))))
+
+
+;; Response handling ;;
 
 (defn- handle-response-event [event]
-  ;(println ( event) )
-  (loop [iter (.messageIterator event)]
+  (loop [iter (.messageIterator ^Event event)]
     (let [res (.next iter)]
       (if (.hasNext iter) (recur iter) res))))
 
-(defn- handle-other-event [event] nil) ;(println "non-event")
+(defn- handle-other-event [event] nil) ;(log/info "non-event")
 
-(defn- wait-for-response [session]
-  ; will loop indefinitely if no more events
-  (loop [s session]
-    (let [event (.nextEvent s)]
-      (condp = (.intValue (.eventType event))
-        com.bloomberglp.blpapi.Event$EventType$Constants/RESPONSE (handle-response-event event)
-        com.bloomberglp.blpapi.Event$EventType$Constants/PARTIAL_RESPONSE (do (handle-other-event event) (recur s))
-        (do (handle-other-event event) (recur s))))))
-
-(defn- read-spot-response [message fields]
-  (let [msg (.getElement message "securityData")
-        fieldscoll (if (coll? fields)  fields [fields])]
+(defn- read-spot-response
+  "Returns {sec1 {field1 value1 field2 value2} {sec2 {field1 value1 field2 value2}"
+  [message fields]
+  (let [msg (.getElement ^Message message "securityData") ;;message
+        fieldscoll (if (coll? fields) fields [fields])]
     (into {} (for [secid (range (.numValues msg))]
                (let [o (.getValueAsElement msg secid)]
                  [(.getValueAsString (.getElement  o "security"))
                   (let [fieldres (.getElement o "fieldData")]
                     (into {} (for [f fieldscoll] [(keyword f)
-                                                  (let [v (.getElement fieldres f)]
+                                                  (let [v (.getElement ^Element fieldres f)]
                                                     (if (zero? (.numValues v)) nil (.getValueAsString v)))])))])))))
 
-(defn bdp [security field & {:keys [override-field override-value] :or {override-field nil override-value nil}}]
-  (if (and override-field override-value)
-    (read-spot-response
-      (wait-for-response
-        (clj-bdp-session security field override-field override-value)) field)
-    (read-spot-response
-      (wait-for-response
-        (clj-bdp-session security field nil nil)) field)))
+(defn- read-historical-response
+  "Returns {security [{field1 value1 field2 value2 :date date-id}}"
+  [message fields]
+  (let [blparray (.getElement (.getElement message "securityData") "fieldData")
+        fieldscoll (if (coll? fields) fields [fields])]
+    {(.getValueAsString (.getElement (.getElement message "securityData") "security") 0)
+     (into [] (for [i (range (.numValues blparray))]
+                (let [x (.getValueAsElement blparray i)]
+                  (assoc (into {} (for [f fieldscoll] [(keyword f) (.getElementAsFloat64 x f)])) :date (.getElementAsString x "date")))))}))
+
+(defn- wait-for-response
+  "This will loop indefinitely if no more events"
+  [session spot-or-history fields]
+  (letfn [(assoc-response [acc event fields]
+            (let [response ((if (= spot-or-history :spot) read-spot-response read-historical-response) (handle-response-event event) fields)]
+              (merge acc response)))]
+    (loop [s session acc {}]
+      (let [event (.nextEvent s)]
+        (condp = (.intValue (.eventType event))
+          Event$EventType$Constants/RESPONSE (assoc-response acc event fields)
+          Event$EventType$Constants/PARTIAL_RESPONSE (recur s (assoc-response acc event fields)) ; (assoc-response acc event fields)
+          (do (handle-other-event event) (recur s acc)))))))
 
 
-;BDH implementation
-(defn- clj-bdh-session [securities fields start-date end-date adjustment-split periodicity]
+;; BDP definition ;;
+
+(defn clj-bdp-session
+  "We either take the session as an input (SAPI) or create a
+  local session, which will only work locally on a computer that is connected to Bloomberg"
+  ([securitiescoll fieldscoll override-field override-value session-input]
+   (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost "localhost") (.setServerPort 8194))) (.start)))]
+     (.openService session "//blp/refdata")
+     (let [request-id (CorrelationID. 1)
+           ref-data-service (.getService session "//blp/refdata")
+           request (.createRequest ref-data-service "ReferenceDataRequest")]
+       (doseq [s securitiescoll] (.append ^Request request "securities" s))
+       (doseq [f fieldscoll] (.append ^Request request "fields" f))
+       (when override-field
+         (doto (.appendElement (.getElement request "overrides"))
+           (.setElement "fieldId" override-field)
+           (.setElement "value" override-value)))
+       (.sendRequest session request request-id)
+       session))))
+
+(defn bdp [securities fields & {:keys [session override-field override-value] :or {session nil override-field nil override-value nil}}]
+  (let [securitiescoll (if (coll? securities) securities [securities])
+        fieldscoll (map name (if (coll? fields) fields [fields]))]
+    (wait-for-response (clj-bdp-session securitiescoll fieldscoll override-field override-value session) :spot fieldscoll)))
+
+(defn bdp-simple
+  "One security and one field - will return a string"
+  [security field & {:keys [override-field override-value] :or {override-field nil override-value nil}}]
+  (get-in (bdp security field :override-field override-field :override-value override-value) [security (keyword field)]))
+
+
+;; BDH definition ;;
+
+(defn- clj-bdh-session [securitiescoll fieldscoll start-date end-date adjustment-split periodicity]
   (let [session-options (doto (SessionOptions.) (.setServerHost "localhost") (.setServerPort 8194))
         session (doto (Session. session-options) (.start) (.openService "//blp/refdata"))
         request-id (CorrelationID. 1)
         ref-data-service (.getService session "//blp/refdata")
-        securitiescoll (if (coll? securities) securities [securities])
-        fieldscoll (if (coll? fields) fields [fields])
+        ;securitiescoll (if (coll? securities) securities [securities])
+        ;fieldscoll (if (coll? fields) fields [fields])
         request (doto
                   (.createRequest ref-data-service "HistoricalDataRequest")
                   (.set "startDate" start-date)
@@ -80,53 +164,10 @@
     (.sendRequest session request request-id)
     session))
 
-(defn- read-historical-response [message fields]
-  (let [blparray (.getElement (.getElement message "securityData") "fieldData")
-        fieldscoll (if (coll? fields)  fields [fields])]
-    [(.getValueAsString (.getElement (.getElement message "securityData") "security") 0)
-     (into [] (for [i (range (.numValues blparray))]
-                (let [x (.getValueAsElement blparray i)]
-                  (assoc (into {} (for [f fieldscoll] [(keyword f) (.getElementAsFloat64 x f)])) :date (.getElementAsString x "date")))))]))
-
-(defn- wait-for-historical-response [session fields]
-  ; will loop indefinitely if no more events
-  (loop [s session acc {}]
-    (let [event (.nextEvent s)]
-      (condp = (.intValue (.eventType event))
-        com.bloomberglp.blpapi.Event$EventType$Constants/RESPONSE (let [response (read-historical-response (handle-response-event event) fields)]
-                                                                    (assoc acc (first response) (second response)))
-        com.bloomberglp.blpapi.Event$EventType$Constants/PARTIAL_RESPONSE (let [response (read-historical-response (handle-response-event event) fields)]
-                                                                            (recur s (assoc acc (first response) (second response))))
-        (do (handle-other-event event) (recur s acc))))))
-
 (defn bdh [securities fields start-date end-date & {:keys [adjustment-split periodicity] :or {adjustment-split false periodicity "DAILY"}}]
-    (wait-for-historical-response
-      (clj-bdh-session securities fields start-date end-date adjustment-split periodicity) fields))
-
-
-;Convenience functions
-
-(defn bdp-simple [security field & {:keys [override-field override-value] :or {override-field nil override-value nil}}]
-  ;this is used to ask for one security and one field - will return a string
-  (get-in (bdp security field :override-field override-field :override-value override-value) [security (keyword field) ]))
-
-(defn field-from-timeseries [bdhm-result field]
-  ;warning - this will only give correct results if the different series are aligned - no check for this is implemented
-  (let [cross (apply map (cons vector (map #(bdhm-result %) (keys bdhm-result))))
-        f (fn [a] [(first a) (field (second a))])]
-    (into [] (for [k cross]
-               (assoc
-                 (into {} (map f (map vector (keys bdhm-result) k)))
-                 :date
-                 (:date (first k)))))))
-
-(defn date-from-timeseries [m date]
-  (into {} (for [s m line (second s)] (if (= (:date line) date) [(first s) line] nil))))
-
-(defn field-date-from-timeseries [bdhm-result field date]
-  (let [data (date-from-timeseries bdhm-result date)
-        data2 (into {} (for [[a b] data] [a [b]]))]
-    (first (field-from-timeseries data2 field))))
+  (let [securitiescoll (if (coll? securities) securities [securities])
+        fieldscoll (map name (if (coll? fields) fields [fields]))]
+    (wait-for-response (clj-bdh-session securitiescoll fieldscoll (date->yyyyMMdd start-date) (date->yyyyMMdd end-date) adjustment-split periodicity) :history fieldscoll)))
 
 
 ;Examples
@@ -135,14 +176,14 @@
 ;(def out3 (bdp-simple "AAPL US Equity" "PX_LAST"))
 ;(def out4 (bdp-simple "US900123AL40 Corp" "YAS_BOND_YLD" :override-field "YAS_BOND_PX" :override-value 100.))
 ;(def out5 (bdp ["AAPL US Equity" "GOOG US Equity" "FB US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"]))
-;(def out6 (field-from-timeseries out1 :PX_OPEN))
-;(def out7 (date-from-timeseries out1 "2019-01-18"))
-;(def out8 (field-date-from-timeseries out1 :PX_OPEN "2019-01-18"))
+;(def out6 (bdh-result->field out1 :PX_OPEN))
+;(def out7 (bdh-result->date out1 "2019-01-18"))
+;(def out8 (bdh-result->date-field out1 "2019-01-18" :PX_OPEN))
+;(def out9 (bdh-result->records out1))
 ;
 
 
-;;;;;;;;
-;Subscription
+;; Subscription ;;
 
 (defn clj-bdp-subscribe [securities fields atom-map]
   (let [session-options (doto (SessionOptions.) (.setServerHost "localhost") (.setServerPort 8194))
@@ -154,24 +195,25 @@
         corrmap (into {} (map-indexed vector securitiescoll))]
     (doseq  [[c s] corrmap]
       (.add subscriptions (Subscription. s fieldstring (CorrelationID. c))))
-  (Thread.
-    (fn []
-      (try
-        (.subscribe session subscriptions)
-        (while true
-          (let [event (.nextEvent session)]
-            (if (= (.intValue (.eventType event)) com.bloomberglp.blpapi.Event$EventType$Constants/SUBSCRIPTION_DATA)
-              (let [iter (.messageIterator event) msg (.next iter) s (corrmap (.object (.correlationID msg)))]
-                (doseq [f fieldscoll]
-                  (when (.hasElement msg f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg f)))))))))
-               (catch InterruptedException e
-                 (.stop session)
-                 (println (.getMessage e))))))))
+    (Thread.
+      (fn []
+        (try
+          (.subscribe session subscriptions)
+          (while true
+            (let [event (.nextEvent session)]
+              (if (= (.intValue (.eventType event)) Event$EventType$Constants/SUBSCRIPTION_DATA)
+                (let [iter (.messageIterator event) msg (.next iter) s (corrmap (.object (.correlationID msg)))]
+                  (doseq [f fieldscoll]
+                    (when (.hasElement msg f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg f)))))))))
+          (catch InterruptedException e
+            (.stop session)
+            (println (.getMessage e))))))))
+
 
 
 ;Examples
 ;(def m (atom nil))
 ;(def t (clj-bdp-subscribe ["AAPL US Equity" "GOOG US Equity"] ["LAST_PRICE"] m))
 ;(.start t)
-;(println @m)
+;(log/info @m)
 ;(.stop t)
