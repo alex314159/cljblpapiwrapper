@@ -1,19 +1,25 @@
-<?xml version="1.0" encoding="UTF-8"?><project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
   <groupId>cljblpapiwrapper</groupId>
   <artifactId>cljblpapiwrapper</artifactId>
   <packaging>jar</packaging>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.3.1</version>
   <name>cljblpapiwrapper</name>
-  <description>FIXME: write description</description>
-  <url>http://example.com/FIXME</url>
+  <description>Simple Clojure wrapper around the Bloomberg Java API</description>
+  <url>https://github.com/alex314159/cljblpapiwrapper</url>
   <licenses>
     <license>
       <name>EPL-2.0</name>
       <url>https://www.eclipse.org/legal/epl-2.0/</url>
     </license>
   </licenses>
-  <scm/>
+  <scm>
+    <url>https://github.com/alex314159/cljblpapiwrapper</url>
+    <connection>scm:git:git://github.com/alex314159/cljblpapiwrapper.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/alex314159/cljblpapiwrapper.git</developerConnection>
+    <tag>d35f17ff9cd312a8579cf3b8a7a9d9b994b59355</tag>
+  </scm>
   <build>
     <sourceDirectory>src</sourceDirectory>
     <testSourceDirectory>test</testSourceDirectory>
@@ -60,7 +66,7 @@
     <dependency>
       <groupId>org.clojure</groupId>
       <artifactId>clojure</artifactId>
-      <version>1.9.0</version>
+      <version>1.10.1</version>
     </dependency>
     <dependency>
       <groupId>alex314159</groupId>

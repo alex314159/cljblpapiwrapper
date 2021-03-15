@@ -3,7 +3,7 @@
   (:import
     (java.time LocalDate ZonedDateTime)
     (java.time.format DateTimeFormatter)
-    (com.bloomberglp.blpapi CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request)))
+    (com.bloomberglp.blpapi CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
 
 
 ;; Useful functions, not Bloomberg add-in dependent ;;
@@ -96,7 +96,7 @@
     {(.getValueAsString (.getElement (.getElement message "securityData") "security") 0)
      (into [] (for [i (range (.numValues blparray))]
                 (let [x (.getValueAsElement blparray i)]
-                  (assoc (into {} (for [f fieldscoll] [(keyword f) (.getElementAsFloat64 x f)])) :date (.getElementAsString x "date")))))}))
+                  (into {:date (.getElementAsString x "date")} (for [f fieldscoll] [(keyword f) (try (.getElementAsFloat64 x f) (catch NotFoundException e nil))])))))}))
 
 (defn- wait-for-response
   "This will loop indefinitely if no more events"

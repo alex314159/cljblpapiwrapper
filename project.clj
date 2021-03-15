@@ -1,4 +1,4 @@
-(defproject cljblpapiwrapper "0.3.1"
+(defproject cljblpapiwrapper "0.3.2"
   :description "Simple Clojure wrapper around the Bloomberg Java API"
   :url "https://github.com/alex314159/cljblpapiwrapper"
   :license {:name "EPL-2.0"
