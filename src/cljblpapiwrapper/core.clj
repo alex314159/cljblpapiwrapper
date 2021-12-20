@@ -117,7 +117,7 @@
 (defn clj-bdp-session
   "We either take the session as an input (SAPI) or create a
   local session, which will only work locally on a computer that is connected to Bloomberg"
-  ([securitiescoll fieldscoll override-field override-value session-input]
+  ([securitiescoll fieldscoll override-map session-input]
    (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
      (.openService session "//blp/refdata")
      (let [request-id (CorrelationID. 1)
@@ -125,22 +125,27 @@
            request (.createRequest ref-data-service "ReferenceDataRequest")]
        (doseq [s securitiescoll] (.append ^Request request "securities" s))
        (doseq [f fieldscoll] (.append ^Request request "fields" f))
-       (when override-field
-         (doto (.appendElement (.getElement request "overrides"))
-           (.setElement "fieldId" override-field)
-           (.setElement "value" override-value)))
+       (when override-map
+         (doseq [[k v] override-map]
+           (doto (.appendElement (.getElement request "overrides"))
+             (.setElement "fieldId" k)
+             (.setElement "value" v))))
        (.sendRequest session request request-id)
        session))))
 
-(defn bdp [securities fields & {:keys [session override-field override-value] :or {session nil override-field nil override-value nil}}]
+(defn bdp [securities fields & {:keys [session override-map] :or {session nil override-map nil}}]
   (let [securitiescoll (if (coll? securities) securities [securities])
         fieldscoll (map name (if (coll? fields) fields [fields]))]
-    (wait-for-response (clj-bdp-session securitiescoll fieldscoll override-field override-value session) :spot fieldscoll)))
+    (wait-for-response (clj-bdp-session securitiescoll fieldscoll override-map session) :spot fieldscoll)))
 
 (defn bdp-simple
-  "One security and one field - will return a string"
+  "One security and one field, one override- will return a string"
   [security field & {:keys [override-field override-value] :or {override-field nil override-value nil}}]
-  (get-in (bdp security field :override-field override-field :override-value override-value) [security (keyword field)]))
+  (get-in
+    (if (and override-field override-value)
+      (bdp security field :override-map {override-field override-value})
+      (bdp security field))
+    [security (keyword field)]))
 
 
 ;; BDH definition ;;
@@ -172,6 +177,7 @@
 ;(def out2 (bdh ["AAPL US Equity" "GOOG US Equity" "FB US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"] "20190101" "20190120" :adjustment-split true :periodicity "WEEKLY"))
 ;(def out3 (bdp-simple "AAPL US Equity" "PX_LAST"))
 ;(def out4 (bdp-simple "US900123AL40 Corp" "YAS_BOND_YLD" :override-field "YAS_BOND_PX" :override-value 100.))
+;(def out4bis (bdp ["XS1713469911 Corp"] ["BETA_ADJ_OVERRIDABLE"] :override-map {"BETA_OVERRIDE_REL_INDEX" "JBCDCOMP Index" "BETA_OVERRIDE_PERIOD" "D"  "BETA_OVERRIDE_START_DT","20210101"}))
 ;(def out5 (bdp ["AAPL US Equity" "GOOG US Equity" "FB US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"]))
 ;(def out6 (bdh-result->field out1 :PX_OPEN))
 ;(def out7 (bdh-result->date out1 "2019-01-18"))

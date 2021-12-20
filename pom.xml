@@ -4,7 +4,7 @@
   <groupId>cljblpapiwrapper</groupId>
   <artifactId>cljblpapiwrapper</artifactId>
   <packaging>jar</packaging>
-  <version>0.3.1</version>
+  <version>0.3.2</version>
   <name>cljblpapiwrapper</name>
   <description>Simple Clojure wrapper around the Bloomberg Java API</description>
   <url>https://github.com/alex314159/cljblpapiwrapper</url>
@@ -18,7 +18,7 @@
     <url>https://github.com/alex314159/cljblpapiwrapper</url>
     <connection>scm:git:git://github.com/alex314159/cljblpapiwrapper.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/alex314159/cljblpapiwrapper.git</developerConnection>
-    <tag>d35f17ff9cd312a8579cf3b8a7a9d9b994b59355</tag>
+    <tag>932a5dcced08bc43a72c5f72bbe527736448ef7a</tag>
   </scm>
   <build>
     <sourceDirectory>src</sourceDirectory>
