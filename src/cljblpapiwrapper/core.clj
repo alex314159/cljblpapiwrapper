@@ -62,7 +62,7 @@
     (loop [s session]
       (let [event (.nextEvent s)]
         (if (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
-          [session (= (subs (.toString (.next (.messageIterator event))) 0 20) "AuthorizationSuccess")]
+          [session (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")]
           (recur s))))))
 
 

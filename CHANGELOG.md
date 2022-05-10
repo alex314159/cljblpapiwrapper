@@ -9,3 +9,7 @@ All notable changes to this project will be documented in this file. This change
 ### Changed
 - Update bbg SDK to latest version + update Clojure version
 - Note that latest SDK returns dates with timezone "yyyy-mm-dd+hh:mm"
+
+## [0.3.5]
+### Changed
+- Fixed bug in sapi session authorisation
