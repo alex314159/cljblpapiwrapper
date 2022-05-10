@@ -180,10 +180,10 @@
 ;(def out4bis (bdp ["XS1713469911 Corp"] ["BETA_ADJ_OVERRIDABLE"] :override-map {"BETA_OVERRIDE_REL_INDEX" "JBCDCOMP Index" "BETA_OVERRIDE_PERIOD" "D"  "BETA_OVERRIDE_START_DT","20210101"}))
 ;(def out5 (bdp ["AAPL US Equity" "GOOG US Equity" "FB US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"]))
 ;(def out6 (bdh-result->field out1 :PX_OPEN))
-;(def out7 (bdh-result->date out1 "2019-01-18"))
-;(def out8 (bdh-result->date-field out1 "2019-01-18" :PX_OPEN))
+;(def out7 (bdh-result->date out1 "2019-01-18+00:00"))
+;(def out8 (bdh-result->date-field out1 "2019-01-18+00:00" :PX_OPEN))
 ;(def out9 (bdh-result->records out1))
-;
+
 
 
 ;; Subscription ;;
@@ -216,7 +216,7 @@
 
 ;Examples
 ;(def m (atom nil))
-;(def t (clj-bdp-subscribe ["AAPL US Equity" "GOOG US Equity"] ["LAST_PRICE"] nil m))
+;(def t (clj-bdp-subscribe ["ESM2 Index" "VGM2 Index"] ["LAST_PRICE"] nil m))
 ;(.start t)
-;(log/info @m)
+;;(log/info @m)
 ;(.stop t)

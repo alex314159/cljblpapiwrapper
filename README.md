@@ -6,9 +6,11 @@ Simple Clojure wrapper around the Bloomberg Java API
 
 This will only work if you're connected to Bloomberg, typically on a machine where the Bloomberg terminal application is running. The request/response paradigm and the subscription paradigm are currently implemented. Please check the examples.
 
+Breaking change from 0.3.3 to 0.3.4: latest SDK returns dates with timezone so "yyyy-mm-dd+hh:mm" instead of "yyyy-mm-dd" previously.
+
 ## License
 
-Copyright © 2019-2021 Alexandre Almosni
+Copyright © 2019-2022 Alexandre Almosni
 
 This program and the accompanying materials are made available under the
 terms of the Eclipse Public License 2.0 which is available at
