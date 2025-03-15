@@ -3,7 +3,7 @@
   (:import
     (java.time LocalDate ZonedDateTime)
     (java.time.format DateTimeFormatter)
-    (com.bloomberglp.blpapi CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
+    (com.bloomberglp.blpapi Name CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
 
 
 ;; Useful functions, not Bloomberg add-in dependent ;;
@@ -36,6 +36,24 @@
   [res date field]
   (into {} (for [r (bdh-result->date res date)] [(r :security) (r field)])))
 
+(defn ->coll [x] (if (coll? x) x [x]))
+(defn ->namecoll [x] (map #(Name. %) (->coll x)))
+
+;; Bloomberg names
+(def bbg-uuid (Name. "uuid"))
+(def bbg-ipAddress (Name. "ipAddress"))
+(def bbg-security (Name. "security"))
+(def bbg-fieldData (Name. "fieldData"))
+(def bbg-securityData (Name. "securityData"))
+(def bbg-fields (Name. "fields"))
+(def bbg-securities (Name. "securities"))
+(def bbg-overrides (Name. "overrides"))
+(def bbg-fieldId (Name. "fieldId"))
+(def bbg-value (Name. "value"))
+(def bbg-startDate (Name. "startDate"))
+(def bbg-endDate (Name. "endDate"))
+(def bbg-adjustmentSplit (Name. "adjustmentSplit"))
+(def bbg-periodicitySelection (Name. "periodicitySelection"))
 
 ;; Session functions
 
@@ -56,7 +74,7 @@
         session (doto (Session. session-options) (.start) (.openService "//blp/apiauth"))
         bbgidentity (.createIdentity session)
         api-auth-svc (.getService session "//blp/apiauth")
-        auth-req (doto (.createAuthorizationRequest api-auth-svc) (.set "uuid" (str uuid)) (.set "ipAddress" local-ip))
+        auth-req (doto (.createAuthorizationRequest api-auth-svc) (.set ^Name bbg-uuid (str uuid)) (.set ^Name bbg-ipAddress local-ip))
         corr (CorrelationID. uuid)]
     (.sendAuthorizationRequest session auth-req bbgidentity corr)
     (loop [s session]
@@ -78,25 +96,20 @@
 (defn- read-spot-response
   "Returns {sec1 {field1 value1 field2 value2} {sec2 {field1 value1 field2 value2}"
   [message fields]
-  (let [msg (.getElement ^Message message "securityData") ;;message
-        fieldscoll (if (coll? fields) fields [fields])]
-    (into {} (for [secid (range (.numValues msg))]
-               (let [o (.getValueAsElement msg secid)]
-                 [(.getValueAsString (.getElement  o "security"))
-                  (let [fieldres (.getElement o "fieldData")]
-                    (into {} (for [f fieldscoll] [(keyword f)
-                                                  (let [v (.getElement ^Element fieldres f)]
-                                                    (if (zero? (.numValues v)) nil (.getValueAsString v)))])))])))))
+  (let [msg (.getElement ^Message message ^Name bbg-securityData)]
+    (into {} (for [secid (range (.numValues msg)) :let [o (.getValueAsElement msg secid) fieldres (.getElement o ^Name bbg-fieldData)]]
+               [(.getValueAsString (.getElement o ^Name bbg-security))
+                (into {} (for [f (->coll fields) :let [v (.getElement ^Element fieldres ^Name (Name. f))]]
+                           [(keyword f) (if (zero? (.numValues v)) nil (.getValueAsString v))]))]))))
 
 (defn- read-historical-response
   "Returns {security [{field1 value1 field2 value2 :date date-id}}"
-  [message fields]
-  (let [blparray (.getElement (.getElement message "securityData") "fieldData")
-        fieldscoll (if (coll? fields) fields [fields])]
-    {(.getValueAsString (.getElement (.getElement message "securityData") "security") 0)
-     (into [] (for [i (range (.numValues blparray))]
-                (let [x (.getValueAsElement blparray i)]
-                  (into {:date (.getElementAsString x "date")} (for [f fieldscoll] [(keyword f) (try (.getElementAsFloat64 x f) (catch NotFoundException e nil))])))))}))
+  [^Message message fields]
+  (let [blparray (.getElement (.getElement message ^Name bbg-securityData) ^Name bbg-fieldData)]
+    {(.getValueAsString (.getElement (.getElement message ^Name bbg-securityData) ^Name bbg-security) 0)
+     (into [] (for [i (range (.numValues blparray)) :let [x (.getValueAsElement blparray i)]]
+                (into {:date (.getElementAsString x (Name. "date"))}
+                      (for [f (->namecoll fields)] [(keyword f) (try (.getElementAsFloat64 x ^Name f) (catch NotFoundException e nil))]))))}))
 
 (defn- wait-for-response
   "This will loop indefinitely if no more events"
@@ -123,23 +136,23 @@
      (let [request-id (CorrelationID. 1)
            ref-data-service (.getService session "//blp/refdata")
            request (.createRequest ref-data-service "ReferenceDataRequest")]
-       (doseq [s securitiescoll] (.append ^Request request "securities" s))
-       (doseq [f fieldscoll] (.append ^Request request "fields" f))
+       (doseq [s securitiescoll] (.append ^Request request ^Name bbg-securities ^String s))
+       (doseq [f fieldscoll] (.append ^Request request ^Name bbg-fields ^String f))
        (when override-map
          (doseq [[k v] override-map]
-           (doto (.appendElement (.getElement request "overrides"))
-             (.setElement "fieldId" k)
-             (.setElement "value" v))))
+           (doto (.appendElement (.getElement request ^Name bbg-overrides))
+             (.setElement ^Name bbg-fieldId ^String k)
+             (.setElement ^Name bbg-value v))))
        (.sendRequest session request request-id)
        session))))
 
-(defn bdp [securities fields & {:keys [session override-map] :or {session nil override-map nil}}]
-  (let [securitiescoll (if (coll? securities) securities [securities])
-        fieldscoll (map name (if (coll? fields) fields [fields]))]
-    (wait-for-response (clj-bdp-session securitiescoll fieldscoll override-map session) :spot fieldscoll)))
+(defn bdp
+  [securities fields & {:keys [session override-map] :or {session nil override-map nil}}]
+  (let [fieldscoll (map name (->coll fields))]
+    (wait-for-response (clj-bdp-session (->coll securities) fieldscoll override-map session) :spot fieldscoll)))
 
 (defn bdp-simple
-  "One security and one field, one override- will return a string"
+  "One security and one field, one override; will return a string"
   [security field & {:keys [override-field override-value] :or {override-field nil override-value nil}}]
   (get-in
     (if (and override-field override-value)
@@ -150,25 +163,27 @@
 
 ;; BDH definition ;;
 
-(defn- clj-bdh-session [securitiescoll fieldscoll start-date end-date adjustment-split periodicity session-input]
+(defn- clj-bdh-session
+  [securitiescoll fieldscoll start-date end-date adjustment-split periodicity session-input]
   (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
     (.openService session "//blp/refdata")
     (let [request-id (CorrelationID. 1)
           ref-data-service (.getService session "//blp/refdata")
           request (doto
                     (.createRequest ref-data-service "HistoricalDataRequest")
-                    (.set "startDate" start-date)
-                    (.set "endDate" end-date)
-                    (.set "adjustmentSplit" (if adjustment-split "TRUE" "FALSE"))
-                    (.set "periodicitySelection" periodicity))]
-      (doseq [s securitiescoll] (.append request "securities" s))
-      (doseq [f fieldscoll] (.append request "fields" f))
+                    (.set ^Name bbg-startDate ^String start-date)
+                    (.set ^Name bbg-endDate ^String end-date)
+                    (.set ^Name bbg-adjustmentSplit (if adjustment-split "TRUE" "FALSE"))
+                    (.set ^Name bbg-periodicitySelection ^String periodicity))]
+      (doseq [s securitiescoll] (.append request ^Name bbg-securities ^String s))
+      (doseq [f fieldscoll] (.append request ^Name bbg-fields ^String f))
       (.sendRequest session request request-id)
       session)))
 
-(defn bdh [securities fields start-date end-date & {:keys [adjustment-split periodicity session] :or {adjustment-split false periodicity "DAILY" session nil}}]
-  (let [securitiescoll (if (coll? securities) securities [securities])
-        fieldscoll (map name (if (coll? fields) fields [fields]))]
+(defn bdh
+  [securities fields start-date end-date & {:keys [adjustment-split periodicity session] :or {adjustment-split false periodicity "DAILY" session nil}}]
+  (let [securitiescoll (->coll securities)
+        fieldscoll (map name (->coll fields))]
     (wait-for-response (clj-bdh-session securitiescoll fieldscoll (date->yyyyMMdd start-date) (date->yyyyMMdd end-date) adjustment-split periodicity session) :history fieldscoll)))
 
 
@@ -188,16 +203,18 @@
 
 ;; Subscription ;;
 
-(defn clj-bdp-subscribe [securities fields session-input atom-map]
-  (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+(defn clj-bdp-subscribe
+  "This will subscribe to a list of securities and fields and update an atom-map with the values"
+  [securities fields session-input atom-map]
+  (let [session (or session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
     (.openService session "//blp/mktdata")
     (let [subscriptions (SubscriptionList.)
-          securitiescoll (if (coll? securities) securities [securities])
-          fieldscoll (if (coll? fields) fields [fields])
-          fieldstring (clojure.string/join "," fieldscoll)
+          securitiescoll (->coll securities)
+          fieldscoll (->coll fields)
+          fieldscollname (->namecoll fieldscoll)
           corrmap (into {} (map-indexed vector securitiescoll))]
       (doseq  [[c s] corrmap]
-        (.add subscriptions (Subscription. s fieldstring (CorrelationID. c))))
+        (.add subscriptions (Subscription. ^String s (clojure.string/join "," fieldscoll) (CorrelationID. c))))
       (Thread.
         (fn []
           (try
@@ -206,8 +223,8 @@
               (let [event (.nextEvent session)]
                 (if (= (.intValue (.eventType event)) Event$EventType$Constants/SUBSCRIPTION_DATA)
                   (let [iter (.messageIterator event) msg (.next iter) s (corrmap (.object (.correlationID msg)))]
-                    (doseq [f fieldscoll]
-                      (when (.hasElement msg f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg f)))))))))
+                    (doseq [f fieldscollname]
+                      (when (.hasElement msg ^Name f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg ^Name f)))))))))
           (catch InterruptedException e
             (.stop session)
             (println (.getMessage e)))))))))
