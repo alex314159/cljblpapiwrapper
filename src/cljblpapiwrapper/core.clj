@@ -3,7 +3,7 @@
   (:import
     (java.time LocalDate ZonedDateTime)
     (java.time.format DateTimeFormatter)
-    (com.bloomberglp.blpapi Name CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
+    (com.bloomberglp.blpapi Name Identity CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
 
 
 ;; Useful functions, not Bloomberg add-in dependent ;;
@@ -80,7 +80,10 @@
     (loop [s session]
       (let [event (.nextEvent s)]
         (if (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
-          [session (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")]
+          {:session session
+           :success (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")
+           :identity bbgidentity
+           :correlation-id corr}                                                ; [session (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")]
           (recur s))))))
 
 
@@ -109,7 +112,7 @@
     {(.getValueAsString (.getElement (.getElement message ^Name bbg-securityData) ^Name bbg-security) 0)
      (into [] (for [i (range (.numValues blparray)) :let [x (.getValueAsElement blparray i)]]
                 (into {:date (.getElementAsString x (Name. "date"))}
-                      (for [f (->namecoll fields)] [(keyword f) (try (.getElementAsFloat64 x ^Name f) (catch NotFoundException e nil))]))))}))
+                      (for [f fields] [(keyword f) (try (.getElementAsFloat64 x ^Name (Name. f)) (catch NotFoundException e nil))]))))}))
 
 (defn- wait-for-response
   "This will loop indefinitely if no more events"
@@ -131,7 +134,7 @@
   "We either take the session as an input (SAPI) or create a
   local session, which will only work locally on a computer that is connected to Bloomberg"
   ([securitiescoll fieldscoll override-map session-input]
-   (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+   (let [session (or (:session session-input) (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
      (.openService session "//blp/refdata")
      (let [request-id (CorrelationID. 1)
            ref-data-service (.getService session "//blp/refdata")
@@ -143,7 +146,9 @@
            (doto (.appendElement (.getElement request ^Name bbg-overrides))
              (.setElement ^Name bbg-fieldId ^String k)
              (.setElement ^Name bbg-value v))))
-       (.sendRequest session request request-id)
+       (if session-input
+         (.sendRequest ^Session session ^Request request ^Identity (:identity session-input) ^CorrelationID request-id)
+         (.sendRequest session request request-id))
        session))))
 
 (defn bdp
@@ -165,7 +170,7 @@
 
 (defn- clj-bdh-session
   [securitiescoll fieldscoll start-date end-date adjustment-split periodicity session-input]
-  (let [session (if session-input session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+  (let [session (or (:session session-input) (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
     (.openService session "//blp/refdata")
     (let [request-id (CorrelationID. 1)
           ref-data-service (.getService session "//blp/refdata")
@@ -177,7 +182,9 @@
                     (.set ^Name bbg-periodicitySelection ^String periodicity))]
       (doseq [s securitiescoll] (.append request ^Name bbg-securities ^String s))
       (doseq [f fieldscoll] (.append request ^Name bbg-fields ^String f))
-      (.sendRequest session request request-id)
+      (if session-input
+        (.sendRequest ^Session session ^Request request ^Identity (:identity session-input) ^CorrelationID request-id)
+        (.sendRequest session request request-id))
       session)))
 
 (defn bdh
@@ -206,7 +213,7 @@
 (defn clj-bdp-subscribe
   "This will subscribe to a list of securities and fields and update an atom-map with the values"
   [securities fields session-input atom-map]
-  (let [session (or session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+  (let [session (or (:session session-input) (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
     (.openService session "//blp/mktdata")
     (let [subscriptions (SubscriptionList.)
           securitiescoll (->coll securities)
@@ -218,7 +225,9 @@
       (Thread.
         (fn []
           (try
-            (.subscribe session subscriptions)
+            (if session-input
+              (.subscribe ^Session session ^SubscriptionList subscriptions ^Identity (:identity session-input))
+              (.subscribe session subscriptions))
             (while true
               (let [event (.nextEvent session)]
                 (if (= (.intValue (.eventType event)) Event$EventType$Constants/SUBSCRIPTION_DATA)
@@ -236,4 +245,4 @@
 ;(def t (clj-bdp-subscribe ["ESM2 Index" "VGM2 Index"] ["LAST_PRICE"] nil m))
 ;(.start t)
 ;;(log/info @m)
-;(.stop t)
+;(.interrupt t)
