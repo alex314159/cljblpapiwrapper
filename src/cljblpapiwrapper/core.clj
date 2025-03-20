@@ -89,10 +89,12 @@
 
 ;; Response handling ;;
 
-(defn- handle-response-event [event]
-  (loop [iter (.messageIterator ^Event event)]
-    (let [res (.next iter)]
-      (if (.hasNext iter) (recur iter) res))))
+;(defn- handle-response-event [event]
+;  (loop [iter (.messageIterator ^Event event)]
+;    (let [res (.next iter)]
+;      (if (.hasNext iter) (recur iter) res))))
+
+(defn- handle-response-event [^Event event] (last (iterator-seq (.messageIterator event))))
 
 (defn- handle-other-event [event] nil) ;(log/info "non-event")
 
@@ -195,16 +197,27 @@
 
 
 ;Examples
-;(def out1 (bdh ["AAPL US Equity" "GOOG US Equity" "FB US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"] "20190101" "20190120"))
-;(def out2 (bdh ["AAPL US Equity" "GOOG US Equity" "FB US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"] "20190101" "20190120" :adjustment-split true :periodicity "WEEKLY"))
-;(def out3 (bdp-simple "AAPL US Equity" "PX_LAST"))
-;(def out4 (bdp-simple "US900123AL40 Corp" "YAS_BOND_YLD" :override-field "YAS_BOND_PX" :override-value 100.))
-;(def out4bis (bdp ["XS1713469911 Corp"] ["BETA_ADJ_OVERRIDABLE"] :override-map {"BETA_OVERRIDE_REL_INDEX" "JBCDCOMP Index" "BETA_OVERRIDE_PERIOD" "D"  "BETA_OVERRIDE_START_DT","20210101"}))
-;(def out5 (bdp ["AAPL US Equity" "GOOG US Equity" "FB US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"]))
-;(def out6 (bdh-result->field out1 :PX_OPEN))
-;(def out7 (bdh-result->date out1 "2019-01-18+00:00"))
-;(def out8 (bdh-result->date-field out1 "2019-01-18+00:00" :PX_OPEN))
-;(def out9 (bdh-result->records out1))
+(defn test-suite []
+  (let [out1 (bdh ["AAPL US Equity" "GOOG US Equity" "META US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"] "20190101" "20190120")
+        out2 (bdh ["AAPL US Equity" "GOOG US Equity" "META US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"] "20190101" "20190120" :adjustment-split true :periodicity "WEEKLY")
+        out3 (bdp-simple "AAPL US Equity" "PX_LAST")
+        out4 (bdp-simple "US900123AL40 Corp" "YAS_BOND_YLD" :override-field "YAS_BOND_PX" :override-value 100.)
+        out4bis (bdp ["XS1713469911 Corp"] ["BETA_ADJ_OVERRIDABLE"] :override-map {"BETA_OVERRIDE_REL_INDEX" "JBCDCOMP Index" "BETA_OVERRIDE_PERIOD" "D" "BETA_OVERRIDE_START_DT", "20210101"})
+        out5 (bdp ["AAPL US Equity" "GOOG US Equity" "META US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"])
+        out6 (bdh-result->field out1 :PX_OPEN)
+        out7 (bdh-result->date out1 "2019-01-18")
+        out8 (bdh-result->date-field out1 "2019-01-18" :PX_OPEN)
+        out9 (bdh-result->records out1)]
+    {:bdh out1
+     :bdh-weekly out2
+     :bdp-simple out3
+     :bdp-simple-override-1 out4
+     :bdp-overide out4bis
+     :bdp out5
+     :bdh-field out6
+     :bdh-date out7
+     :bdh-date-field out8
+     :bdh-records out9}))
 
 
 
@@ -235,7 +248,7 @@
                     (doseq [f fieldscollname]
                       (when (.hasElement msg ^Name f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg ^Name f)))))))))
           (catch InterruptedException e
-            (.stop session)
+            (.stop ^Session session)
             (println (.getMessage e)))))))))
 
 
