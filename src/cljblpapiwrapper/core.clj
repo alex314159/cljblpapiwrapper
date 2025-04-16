@@ -3,7 +3,7 @@
   (:import
     (java.time LocalDate ZonedDateTime)
     (java.time.format DateTimeFormatter)
-    (com.bloomberglp.blpapi Name Identity CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
+    (com.bloomberglp.blpapi AuthApplication AuthOptions Name Identity CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
 
 
 ;; Useful functions, not Bloomberg add-in dependent ;;
@@ -59,6 +59,36 @@
 
 (def default-local-host "localhost")
 (def default-local-port 8194)
+
+(defn sapi-session-new-untested
+  "SAPI authentication
+  - host-ip and host-port are for the server
+  - uuid is the UUID of a user who's creating the request and is logged into Bloomberg desktop
+  - local-ip is the ip of the user"
+  [^String host-ip ^Long host-port ^Long uuid ^String local-ip ^String app-name]
+  (let [app-corr-id (CorrelationID. app-name)
+        auth-options (AuthOptions. (AuthApplication. app-name))
+        session-options (doto
+                          (SessionOptions.)
+                          ;(.setClientMode SessionOptions$ClientMode/SAPI)
+                          (.setServerHost host-ip)
+                          (.setServerPort host-port)
+                          (.setSessionIdentityOptions auth-options app-corr-id)
+                          )
+        session (doto (Session. session-options (SessionEventHandler)) (.start) (.openService "//blp/apiauth"))
+        bbgidentity (.createIdentity session)
+        api-auth-svc (.getService session "//blp/apiauth")
+        auth-req (doto (.createAuthorizationRequest api-auth-svc) (.set ^Name bbg-uuid (str uuid)) (.set ^Name bbg-ipAddress local-ip))
+        corr (CorrelationID. uuid)]
+    (.sendAuthorizationRequest session auth-req bbgidentity corr)
+    (loop [s session]
+      (let [event (.nextEvent s)]
+        (if (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
+          {:session session
+           :success (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")
+           :identity bbgidentity
+           :correlation-id corr}                                                ; [session (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")]
+          (recur s))))))
 
 (defn sapi-session
   "SAPI authentication
