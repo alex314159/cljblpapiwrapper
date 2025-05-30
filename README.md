@@ -4,11 +4,14 @@ Simple Clojure wrapper around the Bloomberg Java API
 
 ## Usage
 
-This will only work if you're connected to Bloomberg, typically on a machine where the Bloomberg terminal application is running, although SAPI connection is also available. The request/response paradigm and the subscription paradigm are currently implemented. Please check the examples.
+This will only work if you have a valid Bloomberg subscription:
+- typically on a machine where the Bloomberg terminal application is running,
+- or on a server through SAPI, which still requires authentication from a user logged in a terminal.
 
-Breaking change from 0.3.3 to 0.3.5: latest SDK returns dates with timezone so "yyyy-mm-dd+hh:mm" instead of "yyyy-mm-dd" previously.
+The request/response paradigm and the subscription paradigm are currently implemented.
 
-0.3.6: update to blpapi 3.25.2.1. Many strings replaced by Bloomberg Name classes as former methods deprecated.
+Please check the examples.
+
 
 
 ## License

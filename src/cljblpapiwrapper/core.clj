@@ -3,7 +3,7 @@
   (:import
     (java.time LocalDate ZonedDateTime)
     (java.time.format DateTimeFormatter)
-    (com.bloomberglp.blpapi AuthApplication AuthOptions Name Identity CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
+    (com.bloomberglp.blpapi AuthApplication AuthOptions EventHandler Name Identity CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
 
 
 ;; Useful functions, not Bloomberg add-in dependent ;;
@@ -54,41 +54,100 @@
 (def bbg-endDate (Name. "endDate"))
 (def bbg-adjustmentSplit (Name. "adjustmentSplit"))
 (def bbg-periodicitySelection (Name. "periodicitySelection"))
+(def bbg-eidData (Name. "eidData"))
+(def bbg-responseError (Name. "responseError"))
 
 ;; Session functions
 
 (def default-local-host "localhost")
 (def default-local-port 8194)
 
-(defn sapi-session-new-untested
-  "SAPI authentication
-  - host-ip and host-port are for the server
-  - uuid is the UUID of a user who's creating the request and is logged into Bloomberg desktop
-  - local-ip is the ip of the user"
-  [^String host-ip ^Long host-port ^Long uuid ^String local-ip ^String app-name]
-  (let [app-corr-id (CorrelationID. app-name)
-        auth-options (AuthOptions. (AuthApplication. app-name))
-        session-options (doto
-                          (SessionOptions.)
-                          ;(.setClientMode SessionOptions$ClientMode/SAPI)
-                          (.setServerHost host-ip)
-                          (.setServerPort host-port)
-                          (.setSessionIdentityOptions auth-options app-corr-id)
-                          )
-        session (doto (Session. session-options (SessionEventHandler)) (.start) (.openService "//blp/apiauth"))
-        bbgidentity (.createIdentity session)
-        api-auth-svc (.getService session "//blp/apiauth")
-        auth-req (doto (.createAuthorizationRequest api-auth-svc) (.set ^Name bbg-uuid (str uuid)) (.set ^Name bbg-ipAddress local-ip))
-        corr (CorrelationID. uuid)]
-    (.sendAuthorizationRequest session auth-req bbgidentity corr)
-    (loop [s session]
-      (let [event (.nextEvent s)]
-        (if (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
-          {:session session
-           :success (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")
-           :identity bbgidentity
-           :correlation-id corr}                                                ; [session (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")]
-          (recur s))))))
+
+;;;;;;;;;;;;;;;;;; WORK IN PROGRESS RE BLOOMBERG IDEAL SOLUTION ;;;;;;;;;;;;;;;;;;
+(comment
+  (defn print-failed-entitlements
+    [failed-entitlements]
+    (doseq [i (range (count failed-entitlements))]
+      (println (.get failed-entitlements i))))
+
+  (defn distribute-message [^Message msg identities uuids]
+    (let [service (.service msg)
+          failed-entitlements (atom [])
+          securities (.getElement msg ^Name bbg-securityData)
+          num-securities (.numValues securities)]
+      (println "Processing" num-securities "securities:")
+      (doseq [i (range num-securities)]
+        (let [security (.getValueAsElement securities i)
+              ticker (.getElementAsString security ^Name bbg-security)
+              entitlements (if (.hasElement security ^Name bbg-eidData) (.getElement security ^Name bbg-eidData))
+              num-users (.size identities)]
+          (if (and entitlements (not (.isNull entitlements)) (> (.numValues entitlements) 0))
+            (dotimes [j num-users]
+              (reset! failed-entitlements [])
+              (let [identity (.get identities j)
+                    uuid (.get uuids j)]
+                (if (.hasEntitlements identity entitlements service failed-entitlements)
+                  (do
+                    (println "User:" uuid "is entitled to get data for:" ticker)
+                    (.print msg System/out))
+                  (do
+                    (println "User:" uuid "is NOT entitled to get data for:" ticker "- Failed eids:")
+                    (print-failed-entitlements failed-entitlements)))))
+            (dotimes [j num-users]
+              (println "User:" (.get uuids j) "is entitled to get data for:" ticker)))))))
+
+  (defn process-response-event [^Event event identities uuids]
+    (doseq [^Message msg event]
+      (if (.hasElement msg ^Name bbg-responseError)
+        (println msg)
+        (distribute-message msg identities uuids))))
+
+  (defn make-session-event-handler [identities uuids user-ips]
+    (reify EventHandler
+      (processEvent [_ event session]
+        (let [event-type (.intValue (.eventType event))]
+          (cond
+            (some #{event-type} [(.intValue Event$EventType$Constants/SESSION_STATUS)
+                                 (.intValue Event$EventType$Constants/SERVICE_STATUS)
+                                 (.intValue Event$EventType$Constants/REQUEST_STATUS)
+                                 (.intValue Event$EventType$Constants/AUTHORIZATION_STATUS)
+                                 (.intValue Event$EventType$Constants/SUBSCRIPTION_STATUS)])
+            (try (println event) (catch ^Exception e (println "Exception!!!" (.getMessage e))))
+            (some #{event-type} [(.intValue Event$EventType$Constants/RESPONSE)
+                                 (.intValue Event$EventType$Constants/PARTIAL_RESPONSE)])
+            (try
+              (process-response-event event identities uuids)
+              (catch Exception e
+                (println "Library Exception!!!" (.getMessage e)))))))))
+
+  (defn sapi-session-new-untested
+    "SAPI authentication
+    - host-ip and host-port are for the server
+    - uuid is the UUID of a user who's creating the request and is logged into Bloomberg desktop
+    - local-ip is the ip of the user"
+    [^String host-ip ^Long host-port ^Long uuid ^String local-ip ^String app-name]
+    (let [app-corr-id (CorrelationID. app-name)
+          auth-options (AuthOptions. (AuthApplication. app-name))
+          session-options (doto
+                            (SessionOptions.)
+                            ;(.setClientMode SessionOptions$ClientMode/SAPI)
+                            (.setServerHost host-ip)
+                            (.setServerPort host-port)
+                            (.setSessionIdentityOptions auth-options app-corr-id))
+          session (doto (Session. session-options (make-session-event-handler i u ui)) (.start) (.openService "//blp/apiauth")) ;(SessionEventHandler)
+          bbgidentity (.createIdentity session)
+          api-auth-svc (.getService session "//blp/apiauth")
+          auth-req (doto (.createAuthorizationRequest api-auth-svc) (.set ^Name bbg-uuid (str uuid)) (.set ^Name bbg-ipAddress local-ip))
+          corr (CorrelationID. uuid)]
+      (.sendAuthorizationRequest session auth-req bbgidentity corr)
+      (loop [s session]
+        (let [event (.nextEvent s)]
+          (if (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
+            {:session        session
+             :success        (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")
+             :identity       bbgidentity
+             :correlation-id corr}                          ; [session (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")]
+            (recur s)))))))
 
 (defn sapi-session
   "SAPI authentication
@@ -113,7 +172,7 @@
           {:session session
            :success (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")
            :identity bbgidentity
-           :correlation-id corr}                                                ; [session (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")]
+           :correlation-id corr}
           (recur s))))))
 
 
