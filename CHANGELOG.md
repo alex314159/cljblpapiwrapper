@@ -17,4 +17,4 @@ All notable changes to this project will be documented in this file. This change
 ## [0.3.6]
 ### Changed
 - update to blpapi 3.25.2.1. Many strings replaced by Bloomberg Name classes as former methods deprecated.
-- Bloomberg wants to sunset 'Server mode', session authentication changed slightly as a result.
+- Bloomberg wants to sunset 'Server mode', session authentication changed slightly as a result. Identity is now necessary.
