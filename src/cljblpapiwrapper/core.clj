@@ -188,7 +188,7 @@
 
 (defn- handle-response-event [^Event event] (last (iterator-seq (.messageIterator event))))
 
-(defn- handle-other-event [event] (println event))
+(defn- handle-other-event [event] nil)
 
 (defn- read-spot-response
   "Returns {sec1 {field1 value1 field2 value2} {sec2 {field1 value1 field2 value2}"
@@ -216,6 +216,7 @@
               (merge acc response)))]
     (loop [s session acc {}]
       (let [event (.nextEvent s)]
+        (println event)
         (condp = (.intValue (.eventType event))
           Event$EventType$Constants/RESPONSE (assoc-response acc event fields)
           Event$EventType$Constants/PARTIAL_RESPONSE (recur s (assoc-response acc event fields)) ; (assoc-response acc event fields)
