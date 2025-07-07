@@ -156,7 +156,6 @@
   - uuid is the UUID of a user who's creating the request and is logged into Bloomberg desktop
   - local-ip is the ip of the user"
   [^String host-ip ^Long host-port ^Long uuid ^String local-ip]
-  (println "with event queue")
   (let [session-options (doto
                           (SessionOptions.)
                           (.setClientMode SessionOptions$ClientMode/AUTO)
@@ -217,7 +216,6 @@
               (merge acc response)))]
     (loop [s session acc {}]
       (let [event (.nextEvent s)]
-        (println event)
         (condp = (.intValue (.eventType event))
           Event$EventType$Constants/RESPONSE (assoc-response acc event fields)
           Event$EventType$Constants/PARTIAL_RESPONSE (recur s (assoc-response acc event fields)) ; (assoc-response acc event fields)
