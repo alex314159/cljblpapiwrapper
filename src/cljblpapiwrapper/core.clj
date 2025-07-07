@@ -37,7 +37,7 @@
   (into {} (for [r (bdh-result->date res date)] [(r :security) (r field)])))
 
 (defn ->coll [x] (if (coll? x) x [x]))
-(defn ->namecoll [x] (map #(Name. %) (->coll x)))
+(defn ->namecoll [x] (mapv #(Name. %) (->coll x)))
 
 ;; Bloomberg names
 (def bbg-uuid (Name. "uuid"))
@@ -188,7 +188,7 @@
 
 (defn- handle-response-event [^Event event] (last (iterator-seq (.messageIterator event))))
 
-(defn- handle-other-event [event] nil) ;(log/info "non-event")
+(defn- handle-other-event [event] ) ;(log/info "non-event")
 
 (defn- read-spot-response
   "Returns {sec1 {field1 value1 field2 value2} {sec2 {field1 value1 field2 value2}"
@@ -245,10 +245,55 @@
          (.sendRequest session request request-id))
        session))))
 
+(defn clj-bdp-session
+  "We either take the session as an input (SAPI) or create a
+  local session, which will only work locally on a computer that is connected to Bloomberg"
+  ([securitiescoll fieldscoll override-map session-input]
+   (let [session (or (:session session-input) (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+     (println "inside clj-bdp-session")
+     (println session)
+     (.openService session "//blp/refdata")
+     (let [request-id (CorrelationID. 1)
+           ref-data-service (.getService session "//blp/refdata")
+           request (.createRequest ref-data-service "ReferenceDataRequest")]
+       (doseq [s securitiescoll] (.append ^Request request ^Name bbg-securities ^String s))
+       (doseq [f fieldscoll] (.append ^Request request ^Name bbg-fields ^String f))
+       (when override-map
+         (doseq [[k v] override-map]
+           (doto (.appendElement (.getElement request ^Name bbg-overrides))
+             (.setElement ^Name bbg-fieldId ^String k)
+             (.setElement ^Name bbg-value v))))
+       (.sendRequest session request request-id)
+       session))))
+
+(defn clj-bdp-session-test
+  "We either take the session as an input (SAPI) or create a
+  local session, which will only work locally on a computer that is connected to Bloomberg"
+  ([securitiescoll fieldscoll override-map session-input]
+   (let [session (or (:session session-input) (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+     (.openService session "//blp/refdata")
+     (let [request-id (CorrelationID. 1)
+           ref-data-service (.getService session "//blp/refdata")
+           request (.createRequest ref-data-service "ReferenceDataRequest")]
+       (doseq [s securitiescoll] (.append ^Request request ^Name bbg-securities ^String s))
+       (doseq [f fieldscoll] (.append ^Request request ^Name bbg-fields ^String f))
+       (when override-map
+         (doseq [[k v] override-map]
+           (doto (.appendElement (.getElement request ^Name bbg-overrides))
+             (.setElement ^Name bbg-fieldId ^String k)
+             (.setElement ^Name bbg-value v))))
+       (if session-input
+         (.sendRequest ^Session session ^Request request ^Identity (:identity session-input) ^CorrelationID request-id)
+         (.sendRequest session request request-id))
+       session))))
+
 (defn bdp
   [securities fields & {:keys [session override-map] :or {session nil override-map nil}}]
-  (let [fieldscoll (map name (->coll fields))]
-    (wait-for-response (clj-bdp-session (->coll securities) fieldscoll override-map session) :spot fieldscoll)))
+  (let [fieldscoll (mapv name (->coll fields))
+        p1 (println session)
+        new-session (clj-bdp-session (->coll securities) fieldscoll override-map session)
+        p2 (println new-session)]
+    (wait-for-response new-session :spot fieldscoll)))
 
 (defn bdp-simple
   "One security and one field, one override; will return a string"
