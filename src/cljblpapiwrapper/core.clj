@@ -249,7 +249,7 @@
   "We either take the session as an input (SAPI) or create a
   local session, which will only work locally on a computer that is connected to Bloomberg"
   ([securitiescoll fieldscoll override-map session-input]
-   (let [session (or (:session session-input) (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+   (let [session (or session-input (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
      (println "inside clj-bdp-session")
      (println session)
      (.openService session "//blp/refdata")
