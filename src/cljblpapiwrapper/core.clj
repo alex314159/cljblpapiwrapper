@@ -138,9 +138,10 @@
           bbgidentity (.createIdentity session)
           api-auth-svc (.getService session "//blp/apiauth")
           auth-req (doto (.createAuthorizationRequest api-auth-svc) (.set ^Name bbg-uuid (str uuid)) (.set ^Name bbg-ipAddress local-ip))
-          corr (CorrelationID. uuid)]
-      (.sendAuthorizationRequest session auth-req bbgidentity corr)
-      (loop [s session]
+          corr (CorrelationID. uuid)
+          authEventQueue (EventQueue/new)]
+      (.sendAuthorizationRequest session auth-req bbgidentity authEventQueue corr)
+      (loop [s authEventQueue]
         (let [event (.nextEvent s)]
           (if (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
             {:session        session
