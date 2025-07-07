@@ -4,7 +4,7 @@
   <groupId>cljblpapiwrapper</groupId>
   <artifactId>cljblpapiwrapper</artifactId>
   <packaging>jar</packaging>
-  <version>0.3.6</version>
+  <version>0.3.6.1</version>
   <name>cljblpapiwrapper</name>
   <description>Simple Clojure wrapper for the Bloomberg Java API</description>
   <url>https://github.com/alex314159/cljblpapiwrapper</url>
@@ -18,7 +18,7 @@
     <url>https://github.com/alex314159/cljblpapiwrapper</url>
     <connection>scm:git:git://github.com/alex314159/cljblpapiwrapper.git</connection>
     <developerConnection>scm:git:ssh://git@github.com/alex314159/cljblpapiwrapper.git</developerConnection>
-    <tag>4396487a53f2737374375118a4846c452717ad6e</tag>
+    <tag>817babe957b84493d4a9411ad07fab798e0ee573</tag>
   </scm>
   <build>
     <sourceDirectory>src</sourceDirectory>
@@ -35,7 +35,27 @@
     </testResources>
     <directory>target</directory>
     <outputDirectory>target\classes</outputDirectory>
-    <plugins/>
+    <plugins>
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>build-helper-maven-plugin</artifactId>
+        <version>1.7</version>
+        <executions>
+          <execution>
+            <id>add-source</id>
+            <phase>generate-sources</phase>
+            <goals>
+              <goal>add-source</goal>
+            </goals>
+            <configuration>
+              <sources>
+                <source>src\cljblpapiwrapper</source>
+              </sources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
   </build>
   <repositories>
     <repository>
