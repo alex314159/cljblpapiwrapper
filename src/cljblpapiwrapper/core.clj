@@ -3,7 +3,7 @@
   (:import
     (java.time LocalDate ZonedDateTime)
     (java.time.format DateTimeFormatter)
-    (com.bloomberglp.blpapi AuthApplication AuthOptions EventHandler Name Identity CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException)))
+    (com.bloomberglp.blpapi AuthApplication AuthOptions EventHandler Name Identity CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException EventQueue)))
 
 
 ;; Useful functions, not Bloomberg add-in dependent ;;
@@ -139,9 +139,9 @@
           api-auth-svc (.getService session "//blp/apiauth")
           auth-req (doto (.createAuthorizationRequest api-auth-svc) (.set ^Name bbg-uuid (str uuid)) (.set ^Name bbg-ipAddress local-ip))
           corr (CorrelationID. uuid)
-          authEventQueue (EventQueue/new)]
-      (.sendAuthorizationRequest session auth-req bbgidentity authEventQueue corr)
-      (loop [s authEventQueue]
+          auth-event-queue (EventQueue/new)]
+      (.sendAuthorizationRequest session auth-req bbgidentity auth-event-queue corr)
+      (loop [s auth-event-queue]
         (let [event (.nextEvent s)]
           (if (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
             {:session        session
@@ -156,6 +156,7 @@
   - uuid is the UUID of a user who's creating the request and is logged into Bloomberg desktop
   - local-ip is the ip of the user"
   [^String host-ip ^Long host-port ^Long uuid ^String local-ip]
+  (println "with event queue")
   (let [session-options (doto
                           (SessionOptions.)
                           (.setClientMode SessionOptions$ClientMode/SAPI)
@@ -165,9 +166,10 @@
         bbgidentity (.createIdentity session)
         api-auth-svc (.getService session "//blp/apiauth")
         auth-req (doto (.createAuthorizationRequest api-auth-svc) (.set ^Name bbg-uuid (str uuid)) (.set ^Name bbg-ipAddress local-ip))
-        corr (CorrelationID. uuid)]
-    (.sendAuthorizationRequest session auth-req bbgidentity corr)
-    (loop [s session]
+        corr (CorrelationID. uuid)
+        auth-event-queue (EventQueue/new)]
+    (.sendAuthorizationRequest session auth-req bbgidentity auth-event-queue corr)
+    (loop [s auth-event-queue]
       (let [event (.nextEvent s)]
         (if (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
           {:session session
