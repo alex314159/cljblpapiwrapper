@@ -1,5 +1,6 @@
 (ns cljblpapiwrapper.core
   (:gen-class)
+  (:require [clojure.tools.logging :as log])
   (:import
     (java.time LocalDate ZonedDateTime)
     (java.time.format DateTimeFormatter)
@@ -178,17 +179,21 @@
            :session-options session-options}
           (recur s))))))
 
+(defn local-session []
+  (doto
+    (Session.
+      (doto (SessionOptions.)
+        (.setServerHost default-local-host)
+        (.setServerPort default-local-port)))
+    (.start)))
 
 ;; Response handling ;;
 
-;(defn- handle-response-event [event]
-;  (loop [iter (.messageIterator ^Event event)]
-;    (let [res (.next iter)]
-;      (if (.hasNext iter) (recur iter) res))))
+(defn- handle-response-event [^Event event]
+  (log/debug "blp response event" (str event))
+  (last (iterator-seq (.messageIterator event))))
 
-(defn- handle-response-event [^Event event] (last (iterator-seq (.messageIterator event))))
-
-(defn- handle-other-event [event] nil)
+(defn- handle-other-event [event] (log/debug "blp other event" (str event)))
 
 (defn- read-spot-response
   "Returns {sec1 {field1 value1 field2 value2} {sec2 {field1 value1 field2 value2}"
@@ -228,7 +233,7 @@
   "We either take the session as an input (SAPI) or create a
   local session, which will only work locally on a computer that is connected to Bloomberg"
   ([securitiescoll fieldscoll override-map session-object]
-   (let [session (or (:session session-object) (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))
+   (let [session (or (:session session-object) (local-session))
          identity (or (:identity session-object) (.createIdentity session))]
      (.openService session "//blp/refdata")
      (let [request-id (CorrelationID. (rand-int 1000))
@@ -245,8 +250,8 @@
        session))))
 
 
-
 (defn bdp
+  "(bdp [\"AAPL US Equity\" ] [ \"PX_LAST\"] :session-map s)"
   [securities fields & {:keys [session-map override-map] :or {session-map nil override-map nil}}]
   (let [fieldscoll (mapv name (->coll fields))
         new-session (clj-bdp-session (->coll securities) fieldscoll override-map session-map)]
@@ -266,7 +271,7 @@
 
 (defn- clj-bdh-session
   [securitiescoll fieldscoll start-date end-date adjustment-split periodicity session-input]
-  (let [session (or (:session session-input) (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+  (let [session (or (:session session-input) (local-session))]
     (.openService session "//blp/refdata")
     (let [request-id (CorrelationID. 1)
           ref-data-service (.getService session "//blp/refdata")
@@ -320,7 +325,7 @@
 (defn clj-bdp-subscribe
   "This will subscribe to a list of securities and fields and update an atom-map with the values"
   [securities fields session-input atom-map]
-  (let [session (or (:session session-input) (doto (Session. (doto (SessionOptions.) (.setServerHost default-local-host) (.setServerPort default-local-port))) (.start)))]
+  (let [session (or (:session session-input) (local-session))]
     (.openService session "//blp/mktdata")
     (let [subscriptions (SubscriptionList.)
           securitiescoll (->coll securities)
