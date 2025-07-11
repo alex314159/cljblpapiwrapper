@@ -232,9 +232,9 @@
 (defn clj-bdp-session
   "We either take the session as an input (SAPI) or create a
   local session, which will only work locally on a computer that is connected to Bloomberg"
-  ([securitiescoll fieldscoll override-map session-object]
-   (let [session (or (:session session-object) (local-session))
-         identity (or (:identity session-object) (.createIdentity session))]
+  ([securitiescoll fieldscoll override-map session-map]
+   (let [session (or (:session session-map) (local-session))
+         identity (or (:identity session-map) (.createIdentity session))]
      (.openService session "//blp/refdata")
      (let [request-id (CorrelationID. (rand-int 1000))
            ref-data-service (.getService session "//blp/refdata")
