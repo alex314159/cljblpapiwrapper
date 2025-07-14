@@ -291,7 +291,7 @@
   [securities fields start-date end-date & {:keys [adjustment-split periodicity session-map] :or {adjustment-split false periodicity "DAILY" session-map nil}}]
   (let [securitiescoll (->coll securities)
         fieldscoll (map name (->coll fields))]
-    (wait-for-response (clj-bdh-session securitiescoll fieldscoll (date->yyyyMMdd start-date) (date->yyyyMMdd end-date) adjustment-split periodicity session) :history fieldscoll)))
+    (wait-for-response (clj-bdh-session securitiescoll fieldscoll (date->yyyyMMdd start-date) (date->yyyyMMdd end-date) adjustment-split periodicity session-map) :history fieldscoll)))
 
 
 ;Examples
