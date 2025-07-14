@@ -22,3 +22,8 @@ All notable changes to this project will be documented in this file. This change
 ## [0.3.6.2]
 ### Changed
 - small refactorings. Added logs at DEBUG level in message handler.
+
+## [0.3.6.3]
+### Changed
+- Added tests
+- bdh was buggy

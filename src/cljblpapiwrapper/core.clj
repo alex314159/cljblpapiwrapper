@@ -270,8 +270,9 @@
 ;; BDH definition ;;
 
 (defn- clj-bdh-session
-  [securitiescoll fieldscoll start-date end-date adjustment-split periodicity session-input]
-  (let [session (or (:session session-input) (local-session))]
+  [securitiescoll fieldscoll start-date end-date adjustment-split periodicity session-map]
+  (let [session (or (:session session-map) (local-session))
+        identity (or (:identity session-map) (.createIdentity session))]
     (.openService session "//blp/refdata")
     (let [request-id (CorrelationID. 1)
           ref-data-service (.getService session "//blp/refdata")
@@ -283,13 +284,11 @@
                     (.set ^Name bbg-periodicitySelection ^String periodicity))]
       (doseq [s securitiescoll] (.append request ^Name bbg-securities ^String s))
       (doseq [f fieldscoll] (.append request ^Name bbg-fields ^String f))
-      (if session-input
-        (.sendRequest ^Session session ^Request request ^Identity (:identity session-input) ^CorrelationID request-id)
-        (.sendRequest session request request-id))
+      (.sendRequest ^Session session ^Request request ^Identity identity ^CorrelationID request-id)
       session)))
 
 (defn bdh
-  [securities fields start-date end-date & {:keys [adjustment-split periodicity session] :or {adjustment-split false periodicity "DAILY" session nil}}]
+  [securities fields start-date end-date & {:keys [adjustment-split periodicity session-map] :or {adjustment-split false periodicity "DAILY" session-map nil}}]
   (let [securitiescoll (->coll securities)
         fieldscoll (map name (->coll fields))]
     (wait-for-response (clj-bdh-session securitiescoll fieldscoll (date->yyyyMMdd start-date) (date->yyyyMMdd end-date) adjustment-split periodicity session) :history fieldscoll)))
