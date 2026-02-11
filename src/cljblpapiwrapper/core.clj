@@ -2,10 +2,9 @@
   (:gen-class)
   (:require [clojure.tools.logging :as log])
   (:import
-    (java.time LocalDate ZonedDateTime)
-    (java.time.format DateTimeFormatter)
-    (com.bloomberglp.blpapi AuthApplication AuthOptions EventHandler Name Identity CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException EventQueue)))
-
+   (java.time LocalDate ZonedDateTime)
+   (java.time.format DateTimeFormatter)
+   (com.bloomberglp.blpapi AuthApplication AuthOptions EventHandler Name Identity CorrelationID Session SessionOptions Subscription SubscriptionList MessageIterator Event$EventType$Constants SessionOptions$ClientMode Event Message Element Request NotFoundException EventQueue)))
 
 ;; Useful functions, not Bloomberg add-in dependent ;;
 
@@ -62,7 +61,6 @@
 
 (def default-local-host "localhost")
 (def default-local-port 8194)
-
 
 ;;;;;;;;;;;;;;;;;; WORK IN PROGRESS RE BLOOMBERG IDEAL SOLUTION ;;;;;;;;;;;;;;;;;;
 (comment
@@ -130,7 +128,7 @@
     (let [app-corr-id (CorrelationID. app-name)
           auth-options (AuthOptions. (AuthApplication. app-name))
           session-options (doto
-                            (SessionOptions.)
+                           (SessionOptions.)
                             ;(.setClientMode SessionOptions$ClientMode/SAPI)
                             (.setServerHost host-ip)
                             (.setServerPort host-port)
@@ -158,7 +156,7 @@
   - local-ip is the ip of the user"
   [^String host-ip ^Long host-port ^Long uuid ^String local-ip]
   (let [session-options (doto
-                          (SessionOptions.)
+                         (SessionOptions.)
                           (.setClientMode SessionOptions$ClientMode/AUTO)
                           (.setServerHost host-ip)
                           (.setServerPort host-port))
@@ -181,10 +179,10 @@
 
 (defn local-session []
   (doto
-    (Session.
-      (doto (SessionOptions.)
-        (.setServerHost default-local-host)
-        (.setServerPort default-local-port)))
+   (Session.
+    (doto (SessionOptions.)
+      (.setServerHost default-local-host)
+      (.setServerPort default-local-port)))
     (.start)))
 
 ;; Response handling ;;
@@ -202,7 +200,16 @@
     (into {} (for [secid (range (.numValues msg)) :let [o (.getValueAsElement msg secid) fieldres (.getElement o ^Name bbg-fieldData)]]
                [(.getValueAsString (.getElement o ^Name bbg-security))
                 (into {} (for [f (->coll fields) :let [v (.getElement ^Element fieldres ^Name (Name. f))]]
-                           [(keyword f) (if (zero? (.numValues v)) nil (.getValueAsString v))]))]))))
+                           [(keyword f) (if (zero? (.numValues v))
+                                          nil
+                                          (try (.getValueAsString v)
+                                               (catch Exception e
+                                                 (log/debug "SEQUENCE element" f "datatype:" (str (.datatype v)) "numElements:" (.numElements v) "numValues:" (.numValues v))
+                                                 (mapv (fn [i] (let [sub (.getValueAsElement v i)]
+                                                                 (into {} (for [j (range (.numElements sub))]
+                                                                            (let [el (.getElement sub j)]
+                                                                              [(str (.name el)) (.getValueAsString el)])))))
+                                                       (range (.numValues v))))))]))]))))
 
 (defn- read-historical-response
   "Returns {security [{field1 value1 field2 value2 :date date-id}}"
@@ -226,7 +233,6 @@
           Event$EventType$Constants/PARTIAL_RESPONSE (recur s (assoc-response acc event fields)) ; (assoc-response acc event fields)
           (do (handle-other-event event) (recur s acc)))))))
 
-
 ;; BDP definition ;;
 
 (defn clj-bdp-session
@@ -249,7 +255,6 @@
        (.sendRequest ^Session session ^Request request ^Identity identity ^CorrelationID request-id)
        session))))
 
-
 (defn bdp
   "(bdp [\"AAPL US Equity\" ] [ \"PX_LAST\"] :session-map s)"
   [securities fields & {:keys [session-map override-map] :or {session-map nil override-map nil}}]
@@ -261,11 +266,10 @@
   "One security and one field, one override; will return a string"
   [security field & {:keys [override-field override-value] :or {override-field nil override-value nil}}]
   (get-in
-    (if (and override-field override-value)
-      (bdp security field :override-map {override-field override-value})
-      (bdp security field))
-    [security (keyword field)]))
-
+   (if (and override-field override-value)
+     (bdp security field :override-map {override-field override-value})
+     (bdp security field))
+   [security (keyword field)]))
 
 ;; BDH definition ;;
 
@@ -277,7 +281,7 @@
     (let [request-id (CorrelationID. 1)
           ref-data-service (.getService session "//blp/refdata")
           request (doto
-                    (.createRequest ref-data-service "HistoricalDataRequest")
+                   (.createRequest ref-data-service "HistoricalDataRequest")
                     (.set ^Name bbg-startDate ^String start-date)
                     (.set ^Name bbg-endDate ^String end-date)
                     (.set ^Name bbg-adjustmentSplit (if adjustment-split "TRUE" "FALSE"))
@@ -293,7 +297,6 @@
         fieldscoll (map name (->coll fields))]
     (wait-for-response (clj-bdh-session securitiescoll fieldscoll (date->yyyyMMdd start-date) (date->yyyyMMdd end-date) adjustment-split periodicity session-map) :history fieldscoll)))
 
-
 ;Examples
 (defn test-suite []
   (let [out1 (bdh ["AAPL US Equity" "GOOG US Equity" "META US Equity"] ["PX_OPEN" "PX_HIGH" "PX_LOW" "PX_LAST"] "20190101" "20190120")
@@ -305,7 +308,8 @@
         out6 (bdh-result->field out1 :PX_OPEN)
         out7 (bdh-result->date out1 "2019-01-18")
         out8 (bdh-result->date-field out1 "2019-01-18" :PX_OPEN)
-        out9 (bdh-result->records out1)]
+        out9 (bdh-result->records out1)
+        out10 (bdp ["USL21779AL44 Corp"] ["CALL_SCHEDULE"])]
     {:bdh out1
      :bdh-weekly out2
      :bdp-simple out3
@@ -315,9 +319,8 @@
      :bdh-field out6
      :bdh-date out7
      :bdh-date-field out8
-     :bdh-records out9}))
-
-
+     :bdh-records out9
+     :bdp-seq-answer out10}))
 
 ;; Subscription ;;
 
@@ -334,22 +337,20 @@
       (doseq  [[c s] corrmap]
         (.add subscriptions (Subscription. ^String s (clojure.string/join "," fieldscoll) (CorrelationID. c))))
       (Thread.
-        (fn []
-          (try
-            (if session-input
-              (.subscribe ^Session session ^SubscriptionList subscriptions ^Identity (:identity session-input))
-              (.subscribe session subscriptions))
-            (while true
-              (let [event (.nextEvent session)]
-                (if (= (.intValue (.eventType event)) Event$EventType$Constants/SUBSCRIPTION_DATA)
-                  (let [iter (.messageIterator event) msg (.next iter) s (corrmap (.object (.correlationID msg)))]
-                    (doseq [f fieldscollname]
-                      (when (.hasElement msg ^Name f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg ^Name f)))))))))
-          (catch InterruptedException e
-            (.stop ^Session session)
-            (println (.getMessage e)))))))))
-
-
+       (fn []
+         (try
+           (if session-input
+             (.subscribe ^Session session ^SubscriptionList subscriptions ^Identity (:identity session-input))
+             (.subscribe session subscriptions))
+           (while true
+             (let [event (.nextEvent session)]
+               (if (= (.intValue (.eventType event)) Event$EventType$Constants/SUBSCRIPTION_DATA)
+                 (let [iter (.messageIterator event) msg (.next iter) s (corrmap (.object (.correlationID msg)))]
+                   (doseq [f fieldscollname]
+                     (when (.hasElement msg ^Name f) (swap! atom-map assoc-in [s f]  (.getValueAsString (.getElement msg ^Name f)))))))))
+           (catch InterruptedException e
+             (.stop ^Session session)
+             (println (.getMessage e)))))))))
 
 ;Examples
 ;(def m (atom nil))

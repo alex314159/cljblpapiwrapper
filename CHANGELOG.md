@@ -27,3 +27,8 @@ All notable changes to this project will be documented in this file. This change
 ### Changed
 - Added tests
 - bdh was buggy
+
+## [0.3.6.4]
+### Changed
+- Added the ability to return a sequence in bdp
+- bump Clojure and tools.logging version

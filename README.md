@@ -16,7 +16,7 @@ Please check the examples.
 
 ## License
 
-Copyright © 2019-2025 Alexandre Almosni
+Copyright © 2019-2026 Alexandre Almosni
 
 This program and the accompanying materials are made available under the
 terms of the Eclipse Public License 2.0 which is available at
