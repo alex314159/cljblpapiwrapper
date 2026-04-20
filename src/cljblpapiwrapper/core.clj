@@ -185,6 +185,51 @@
       (.setServerPort default-local-port)))
     (.start)))
 
+(defn sapi-application-session
+  "Application-only SAPI authentication for Bloomberg BPIPE/SAPI.
+  Uses APPNAME_AND_KEY auth: generates a token from the session and sends it as the auth credential.
+  - host-ip and host-port are for the Bloomberg server
+  - app-name is the registered Bloomberg application name"
+  [^String host-ip ^Long host-port ^String app-name]
+  (let [auth-string (str "AuthenticationMode=APPLICATION_ONLY;"
+                         "ApplicationAuthenticationType=APPNAME_AND_KEY;"
+                         "ApplicationName=" app-name)
+        session-options (doto
+                         (SessionOptions.)
+                          (.setServerHost host-ip)
+                          (.setServerPort host-port)
+                          (.setAuthenticationOptions auth-string))
+        session (doto (Session. session-options) (.start) (.openService "//blp/apiauth"))
+        bbgidentity (.createIdentity session)
+        api-auth-svc (.getService session "//blp/apiauth")
+        token-event-queue (EventQueue/new)
+        token-corr (CorrelationID. "tokenCorrelation")]
+    (.generateToken session token-corr token-event-queue)
+    (let [token-event (.nextEvent token-event-queue (* 60 1000))
+          token (when (= (.intValue (.eventType token-event)) Event$EventType$Constants/TOKEN_STATUS)
+                  (let [iter (.messageIterator token-event)]
+                    (when (.hasNext iter)
+                      (let [msg (.next iter)]
+                        (when (.contains (.toString (.messageType msg)) "TokenGenerationSuccess")
+                          (.getElementAsString msg (Name. "token")))))))]
+      (if (nil? token)
+        (throw (Exception. "Failed to generate Bloomberg application token"))
+        (let [auth-req (doto (.createAuthorizationRequest api-auth-svc)
+                         (.set (Name. "token") ^String token))
+              corr (CorrelationID. app-name)
+              auth-event-queue (EventQueue/new)]
+          (.sendAuthorizationRequest session auth-req bbgidentity auth-event-queue corr)
+          (loop [s auth-event-queue]
+            (let [event (.nextEvent s (* 60 1000))]
+              (if (or (= (.intValue (.eventType event)) Event$EventType$Constants/RESPONSE)
+                      (= (.intValue (.eventType event)) Event$EventType$Constants/PARTIAL_RESPONSE))
+                {:session session
+                 :success (.contains (.toString (.next (.messageIterator event))) "AuthorizationSuccess")
+                 :identity bbgidentity
+                 :correlation-id corr
+                 :session-options session-options}
+                (recur s)))))))))
+
 ;; Response handling ;;
 
 (defn- handle-response-event [^Event event]

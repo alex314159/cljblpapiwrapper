@@ -32,3 +32,7 @@ All notable changes to this project will be documented in this file. This change
 ### Changed
 - Added the ability to return a sequence in bdp
 - bump Clojure and tools.logging version
+
+## [0.3.7.0]
+### Changed
+- Application sessions
